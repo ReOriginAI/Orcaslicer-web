@@ -1,0 +1,137 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { createServer } from 'node:net';
+import assert from 'node:assert/strict';
+import type { AboutResponse, Job, PresetCatalog, ResultFile } from '../packages/shared/src/index.js';
+
+const directory = await mkdtemp(resolve(tmpdir(), 'orca-web-integration-'));
+const listener = createServer();
+await new Promise<void>((yes, no) => { listener.once('error', no); listener.listen(0, '127.0.0.1', yes); });
+const address = listener.address();
+assert(address && typeof address !== 'string');
+const port = address.port;
+await new Promise<void>((yes) => listener.close(() => yes()));
+const base = `http://127.0.0.1:${port}`;
+let server: ChildProcess | undefined;
+let logs = '';
+const pause = (ms: number) => new Promise<void>((yes) => setTimeout(yes, ms));
+async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${base}${path}`, init);
+  const body = await response.json();
+  assert(response.ok, `${response.status}: ${JSON.stringify(body)}`);
+  return body as T;
+}
+async function start() {
+  logs = '';
+  server = spawn(process.execPath, ['apps/server/dist/index.js'], {
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: directory },
+    stdio: ['ignore', 'pipe', 'pipe'], shell: false,
+  });
+  for (const output of [server.stdout, server.stderr]) output?.on('data', (data) => { logs = (logs + String(data)).slice(-30000); });
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) throw new Error(`Server exited: ${logs}`);
+    try { await json('/api/health'); return; } catch { await pause(250); }
+  }
+  throw new Error(`Server did not start: ${logs}`);
+}
+async function stop() {
+  if (!server || server.exitCode !== null) return;
+  const child = server;
+  await new Promise<void>((yes) => {
+    const timer = setTimeout(() => child.kill('SIGKILL'), 12000);
+    child.once('exit', () => { clearTimeout(timer); yes(); });
+    child.kill('SIGTERM');
+  });
+}
+const streamAbort = new AbortController();
+try {
+  await start();
+  const about = await json<AboutResponse>('/api/about');
+  assert(about.slicerAvailable, `Real Orca runtime required. Set ORCA_BIN and ORCA_RESOURCES. ${about.error ?? ''}`);
+  assert(about.orcaVersion, 'Installed version is exposed');
+  const catalog = await json<PresetCatalog>('/api/presets');
+  assert(catalog.defaults, 'KE presets discovered');
+  const machine = catalog.machines.find((item) => item.id === catalog.defaults!.machineId)!;
+  assert.equal(machine.name, 'Creality Ender-3 V3 KE 0.4 nozzle');
+  assert.deepEqual(machine.buildVolume, { width: 220, depth: 220, height: 245 });
+  assert.equal(catalog.processes.find((item) => item.id === catalog.defaults!.processId)?.name, '0.20mm Standard @Creality Ender3V3KE');
+  assert.match(catalog.filaments.find((item) => item.id === catalog.defaults!.filamentId)!.name, /Generic PLA/);
+  const form = new FormData();
+  form.append('options', JSON.stringify(catalog.defaults));
+  form.append('file', new Blob([await readFile('fixtures/cube-20mm.stl')], { type: 'model/stl' }), 'cube-20mm.stl');
+  const created = await json<{ id: string; status: string }>('/api/jobs', { method: 'POST', body: form });
+  assert.equal(created.status, 'queued');
+  const stream = await fetch(`${base}/api/jobs/${created.id}/events`, { signal: streamAbort.signal });
+  assert.equal(stream.headers.get('content-type')?.split(';')[0], 'text/event-stream');
+  assert(stream.body);
+  let eventData = '';
+  const consume = (async () => {
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        eventData = (eventData + decoder.decode(value)).slice(-50000);
+      }
+    } catch (error) { if (!streamAbort.signal.aborted) throw error; }
+  })();
+  const deadline = Date.now() + (Number(process.env.SLICER_TIMEOUT_SECONDS ?? 900) + 60) * 1000;
+  let job: Job | undefined;
+  while (Date.now() < deadline) {
+    job = await json<Job>(`/api/jobs/${created.id}`);
+    if (['succeeded', 'failed', 'canceled'].includes(job.status)) break;
+    await pause(500);
+  }
+  assert.equal(job?.status, 'succeeded', `Real slice failed: ${job?.error ?? job?.status}\n${logs}`);
+  assert(job!.result && job!.result.files.length > 0);
+  const files = await json<ResultFile[]>(`/api/jobs/${created.id}/files`);
+  const gcode = files.find((file) => file.name.toLowerCase().endsWith('.gcode'));
+  assert(gcode && gcode.size > 0, 'Non-empty G-code generated');
+  const downloaded = await fetch(`${base}${gcode.downloadUrl}`);
+  assert(downloaded.ok);
+  const output = await downloaded.text();
+  assert.match(output, /generated by OrcaSlicer/i);
+  assert.match(output, /Ender-3 V3 KE/, 'Output configuration corresponds to selected printer');
+  assert.match(output, /G[01]\s/, 'Output has actual movement commands');
+  await pause(100);
+  streamAbort.abort();
+  await consume;
+  assert.match(eventData, /event: (completed|snapshot)/, 'SSE provides job state');
+  // Exercise the verified 3MF placement workaround and all public process overrides.
+  const transformedForm = new FormData();
+  transformedForm.append('options', JSON.stringify({
+    ...catalog.defaults,
+    transform: { rotation: { x: 15, y: 25, z: 35 }, scale: 1.5 },
+    overrides: { layerHeight: 0.16, wallCount: 3, infillPercent: 22, supports: true, brim: true },
+  }));
+  transformedForm.append('file', new Blob([await readFile('fixtures/cube-20mm.stl')]), 'transformed-cube.stl');
+  const transformed = await json<{ id: string }>('/api/jobs', { method: 'POST', body: transformedForm });
+  let transformedJob: Job | undefined;
+  const transformedDeadline = Date.now() + (Number(process.env.SLICER_TIMEOUT_SECONDS ?? 900) + 60) * 1000;
+  while (Date.now() < transformedDeadline) {
+    transformedJob = await json<Job>(`/api/jobs/${transformed.id}`);
+    if (['succeeded', 'failed', 'canceled'].includes(transformedJob.status)) break;
+    await pause(500);
+  }
+  assert.equal(transformedJob?.status, 'succeeded', `Transformed cube failed: ${transformedJob?.error ?? transformedJob?.status}`);
+  const transformedOutput = await (await fetch(`${base}${transformedJob!.result!.files[0].downloadUrl}`)).text();
+  for (const field of [/; layer_height = 0\.16\s/, /; wall_loops = 3\s/, /; sparse_infill_density = 22%/, /; enable_support = 1\s/, /; brim_type = outer_only/]) assert.match(transformedOutput, field, 'Overrides reached real Orca configuration');
+  const transformedHeight = Number(transformedOutput.match(/; max_z_height:\s*([\d.]+)/)?.[1]);
+  assert(Math.abs(transformedHeight - 45.9784) < 0.5, `Expected actual rotated/scaled cube height ≈46mm, got ${transformedHeight}`);
+  await stop();
+  await start();
+  const restored = await json<Job>(`/api/jobs/${created.id}`);
+  assert.equal(restored.status, 'succeeded', 'Completed jobs survive restart');
+  const restoredFile = await fetch(`${base}${gcode.downloadUrl}`);
+  assert.equal(await restoredFile.text(), output, 'Download survives restart');
+  console.log(`Real Orca ${about.orcaVersion}: stock cube sliced, validated, streamed, downloaded (${gcode.size} bytes), and preserved through server restart. Rotation/scale and all five process overrides verified in generated G-code.`);
+} finally {
+  streamAbort.abort();
+  await stop();
+  if (process.env.KEEP_INTEGRATION_DATA === '1') console.log(`Integration data: ${directory}`);
+  else await rm(directory, { recursive: true, force: true });
+}

@@ -1,0 +1,22 @@
+services:
+  orca-web:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8084}:8084"
+    volumes:
+      - "./data:/data"
+    environment:
+      PORT: 8084
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      MAX_CONCURRENT_SLICES: 1
+      MAX_UPLOAD_MB: 250
+      SLICER_TIMEOUT_SECONDS: 900
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    stop_grace_period: 20s
