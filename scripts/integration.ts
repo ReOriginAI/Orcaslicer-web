@@ -124,7 +124,13 @@ try {
   transformedForm.append('options', JSON.stringify({
     ...catalog.defaults,
     transform: { rotation: { x: 15, y: 25, z: 35 }, scale: 1.5 },
-    overrides: { layerHeight: 0.16, wallCount: 3, infillPercent: 22, infillPattern: 'gyroid', supports: true, supportType: 'tree(auto)', supportOnBuildPlateOnly: false, brim: true },
+    overrides: { layerHeight: 0.16, wallCount: 3, infillPercent: 22, infillPattern: 'gyroid', supports: true, supportType: 'tree(auto)', supportOnBuildPlateOnly: false, brim: true,
+      firstLayerHeight: 0.2, topShellLayers: 4, bottomShellLayers: 4,
+      firstLayerSpeed: 20, outerWallSpeed: 30, innerWallSpeed: 50, infillSpeed: 60, travelSpeed: 120, acceleration: 500,
+      retractionLength: 0.8, retractionSpeed: 35, zHop: 0.4,
+      nozzleTemperature: 215, firstLayerNozzleTemperature: 220, bedTemperature: 50, firstLayerBedTemperature: 55,
+      ambientTemperatureC: 15, flowRatio: 0.95, fanSpeed: 80, coolingOffLayers: 2,
+    },
   }));
   transformedForm.append('file', new Blob([await readFile('fixtures/cube-20mm.stl')]), 'transformed-cube.stl');
   const transformed = await json<{ id: string }>('/api/jobs', { method: 'POST', body: transformedForm });
@@ -139,6 +145,12 @@ try {
   assert.equal(transformedJob!.result!.files[0].name, 'transformed-cube.gcode');
   const transformedOutput = await (await fetch(`${base}${transformedJob!.result!.files[0].downloadUrl}`)).text();
   for (const field of [/; layer_height = 0\.16\s/, /; wall_loops = 3\s/, /; sparse_infill_density = 22%/, /; enable_support = 1\s/, /; brim_type = outer_only/, /; sparse_infill_pattern = gyroid/, /; support_type = tree\(auto\)/, /; support_on_build_plate_only = 0\s/]) assert(field.test(transformedOutput), `Override did not reach real Orca configuration: ${field}`);
+  for (const field of [/; initial_layer_print_height = 0\.2\s/, /; top_shell_layers = 4\s/, /; bottom_shell_layers = 4\s/,
+    /; initial_layer_speed = 20\s/, /; outer_wall_speed = 30\s/, /; inner_wall_speed = 50\s/, /; sparse_infill_speed = 60\s/,
+    /; travel_speed = 120\s/, /; default_acceleration = 500\s/, /; retraction_length = 0\.8\s/, /; retraction_speed = 35\s/, /; z_hop = 0\.4\s/,
+    /; nozzle_temperature = 215\s/, /; nozzle_temperature_initial_layer = 222\s/, /; hot_plate_temp = 50\s/, /; hot_plate_temp_initial_layer = 59\s/,
+    /; filament_flow_ratio = 0\.95\s/, /; fan_max_speed = 80\s/, /; close_fan_the_first_x_layers = 2\s/])
+    assert(field.test(transformedOutput), `Advanced setting did not reach real G-code: ${field}`);
   verifyThumbnails(transformedOutput);
   const transformedHeight = Number(transformedOutput.match(/; max_z_height:\s*([\d.]+)/)?.[1]);
   assert(Math.abs(transformedHeight - 45.9784) < 0.5, `Expected actual rotated/scaled cube height ≈46mm, got ${transformedHeight}`);

@@ -26,6 +26,10 @@ The bundled machine specifies Klipper G-code, a printable polygon from `(0, 0)` 
 
 `--load-settings` does not resolve the bundled profiles' `inherits` chains. The backend resolves parent profiles from the installation, copies the resolved machine/process/filament JSON into each job's work directory, and removes `inherits` from those standalone copies. Installed presets remain unchanged. Names, `type`, and `from: system` are preserved so G-code records the selected system profiles.
 
+The catalog also exposes `Creality Ender-3 Pro` nozzle variants (0.2, 0.4, 0.6, and 0.8 mm) when compatible bundled processes and filaments exist. A real browser slice verified the 0.4 mm Pro with `0.20mm Standard @Creality Ender3 Pro 0.4` and `Creality Generic PLA`. Its stock machine profile supplies Marlin start/end G-code, a 220 × 220 × 250 mm volume, and Bowden retraction defaults. The KE 0.4 mm remains the application default.
+
+Advanced tuning writes scalar strings to the process profile, string arrays to machine/filament profiles, and mirrors explicit retraction overrides into the filament override keys because Orca gives them precedence. The integration test checks all exposed tuning keys in generated G-code. Ambient temperature is an application-level input: it adjusts first-layer nozzle and plate temperatures before profile serialization, with manual values applied first and machine/material limits applied last. The Pro browser test verifies actual `M109 S222` / `M190 S64` heating commands for 15°C ambient and manual first-layer targets of 220°C nozzle / 60°C bed. See the [ambient tuning behavior](../README.md#included-workflow) for the heuristic and its limits.
+
 ## Invocation
 
 The verified argument array is equivalent to:

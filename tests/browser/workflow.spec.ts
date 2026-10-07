@@ -30,7 +30,7 @@ test('real browser → API → Orca → validated G-code download', async ({ pag
   await expect(page.getByRole('button', { name: 'Place on face', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => Number(await page.getByTestId('model-preview').getAttribute('data-min-z'))).toBeCloseTo(0, 6);
   // Infill and supports work independently of the advanced custom-settings toggle.
-  await expect(page.getByRole('checkbox', { name: 'Custom print settings' })).not.toBeChecked();
+  await expect(page.getByRole('tab', { name: 'Basic', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('spinbutton', { name: 'Infill percentage' }).fill('25');
   await page.getByRole('combobox', { name: 'Infill pattern', exact: true }).selectOption('gyroid');
   await page.getByRole('combobox', { name: 'Supports', exact: true }).selectOption('true');
@@ -93,12 +93,18 @@ for (const viewport of [{ width: 1440, height: 700 }, { width: 768, height: 800 
     const name = 'a-long-model-name-with-several-words-and-dimensions-220x220-final-version.stl';
     await page.getByTestId('model-upload').setInputFiles({ name, mimeType: 'model/stl', buffer: await readFile(resolve('fixtures/cube-20mm.stl')) });
     await expect(page.getByTestId('model-preview')).toHaveAttribute('data-loaded', 'true');
-    await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
-    for (const label of ['Infill pattern', 'Support placement', 'Brim']) {
+    for (const label of ['Infill pattern', 'Support placement']) {
       const field = page.getByRole('combobox', { name: label, exact: true });
       await field.scrollIntoViewIfNeeded();
       await expect(field).toBeInViewport();
       await field.click({ trial: true });
+    }
+    await page.getByRole('tab', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
+    for (const label of ['Layer height', 'Retraction length', 'Brim']) {
+      const field = page.getByLabel(label, { exact: true });
+      await field.scrollIntoViewIfNeeded();
+      await expect(field).toBeInViewport();
     }
     const layout = await page.evaluate(() => {
       const settings = document.querySelector('.settings-panel')!;
@@ -112,6 +118,7 @@ for (const viewport of [{ width: 1440, height: 700 }, { width: 768, height: 800 
     });
     await page.screenshot({ path: test.info().outputPath('layout.png'), fullPage: true });
     expect(layout).toEqual({ overflow: false, clippedSettings: false, clippedLabels: false, shortenedLabels: false });
+    await page.getByRole('tab', { name: 'Basic', exact: true }).click();
     await page.getByRole('combobox', { name: 'Supports', exact: true }).selectOption('false');
     await expect(page.getByRole('combobox', { name: 'Support type', exact: true })).toBeDisabled();
     await expect(page.getByRole('combobox', { name: 'Support placement', exact: true })).toBeDisabled();

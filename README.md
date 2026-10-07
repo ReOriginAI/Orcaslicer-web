@@ -25,14 +25,23 @@ To use a different host port, create `.env` from `.env.example` and set `PORT`. 
 
 - STL upload with a configurable 250 MB limit, streamed to disk.
 - Three.js build plate, orbit/pan/zoom, model bounds, X/Y/Z rotation, 90° axis turns, 180° flips, click-to-place on a face, uniform scale, reset, and automatic orientation/arrangement.
-- Printer, process, and filament discovery from the actual installed Orca profiles. The catalog exposes only machines with a complete compatible preset set; this pin supplies KE 0.4 mm.
-- Always-visible infill percentage/pattern and support enable/type/placement options; optional custom layer-height, wall-count, and brim overrides applied to job-specific copies of bundled profiles. Blank values and “Use preset” preserve bundled defaults.
+- Printer, process, and filament discovery from the actual installed Orca profiles. The catalog exposes only machines with a complete compatible preset set; this pin supplies KE 0.4 mm and Ender-3 Pro 0.2 / 0.4 / 0.6 / 0.8 mm nozzle presets.
+- Basic and Advanced settings tabs. Basic includes infill, supports, and placement. Advanced adds layer heights, walls/shells, print/travel speeds, acceleration, nozzle/bed temperatures, flow, retraction, Z hop, cooling, and brim. Blank values and “Use preset” preserve bundled defaults; per-field preset hints show the selected profile’s values.
+- Optional ambient-temperature tuning with editable seasonal shortcuts, a 10–40°C input range, and a preview of the first-layer temperatures after limits.
 - SQLite job history, a bounded in-process queue, live Server-Sent Events, cancellation, and deletion.
 - Output validation against the selected printer, measured slicing time, print-duration/filament statistics when present, and G-code downloads named after the uploaded STL (`part.stl` → `part.gcode`; multiple plates receive `_plate_N` suffixes).
 - Embedded 96×96 and 300×300 PNG previews in Creality's native format and the standard thumbnail format, rendered from the final sliced toolpaths.
 - Desktop/tablet editing and phone-accessible job history and downloads.
 
 The default printer is **Creality Ender-3 V3 KE 0.4 nozzle** and the process is **0.20mm Standard @Creality Ender3V3KE**. The installed machine supplies the build volume. The original requested PLA preset was renamed upstream; Orca 2.4.2's machine default is **Creality Generic PLA @Ender-3V3-all**, which this application discovers and uses.
+
+Selecting an **Ender-3 Pro** loads its own process and filament defaults, build volume (220 × 220 × 250 mm), stock Marlin start/end G-code, and Bowden retraction settings. Changing printer clears print overrides and turns advanced tuning off; room temperature is retained. The KE remains the initial default on each visit. Only nozzle variants with an explicitly compatible process and filament are listed.
+
+Enable **Custom print settings** in the Advanced tab to apply its entries. Turning it off retains entries without applying them; **Reset advanced tuning** clears them. Machine/nozzle limits are enforced again by the server before queueing, including acceleration and temperature limits. Stock temperature ceilings are 300°C nozzle / 100°C bed for the KE and a conservative 250°C nozzle / 110°C bed for the Pro. Manual nozzle overrides must also fit the selected filament profile’s temperature range. Regular fan speed sets its minimum and maximum; bridge/overhang cooling retains its preset. Bed overrides apply across the bundled plate types.
+
+**Room & season** is available on either tab and is off by default. Measure the air near the printer. Winter (15°C), spring (22°C), summer (30°C), and autumn (20°C) are editable starting points for room conditions, independent of location or hemisphere. The accepted range is 10–40°C; the UI gives extra guidance below 15°C or above 32°C. These are application tuning bounds, not a guarantee that a printer or filament will work throughout that range.
+
+Ambient tuning is an optional heuristic around a 22°C room: first-layer nozzle offset = `round((22 − ambient) × 0.3)` and first-layer bed offset = `round((22 − ambient) × 0.5)`, each capped at ±5°C. Manual first-layer overrides are applied first, then the ambient offsets, then the machine limits and the filament’s nozzle range. An unheated bed stays off. Later-layer temperatures, cooling, and motion retain their selected values. For example, winter at 15°C adds 2°C nozzle / 4°C bed before limits. Small offsets cannot correct drafts, heat creep, or severe warping; use a small test print to tune your filament. General environmental guidance follows [Prusa’s warping guide](https://help.prusa3d.com/article/warping_2011); the seasonal values and offset formula are this app’s starting-point heuristic, not manufacturer profiles.
 
 Only STL uploads are enabled in this version. Arbitrary uploaded 3MF projects can carry printer settings, so importing them is postponed until that workflow is verified. Rotation and scaling of uploaded STLs use a server-generated standard 3MF containing only geometry and a placement transform: the pinned Linux build crashes with its direct rotation/scale flags. The working alternative was verified against actual G-code. See [the verified CLI contract](docs/orca-cli.md) for the pin, flags, inheritance handling, and compatibility findings.
 
@@ -75,7 +84,7 @@ pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-`pnpm test` runs unit/API tests and does not require Orca. `pnpm test:integration` starts the real server in an isolated temporary directory, slices the bundled cube, checks live events and actual G-code, verifies rotation/scale and all process overrides, including infill pattern and support type/placement, checks both embedded thumbnail formats and dimensions, and restarts the server to check persistence. It requires `ORCA_BIN` and `ORCA_RESOURCES`; it fails if a real slicer is unavailable. `KEEP_INTEGRATION_DATA=1` preserves its temporary files for debugging.
+`pnpm test` runs unit/API tests and does not require Orca. `pnpm test:integration` starts the real server in an isolated temporary directory, slices the bundled cube, checks live events and actual G-code, verifies rotation/scale, process/filament/machine overrides and ambient first-layer temperature adjustments, checks both embedded thumbnail formats and dimensions, and restarts the server to check persistence. It requires `ORCA_BIN` and `ORCA_RESOURCES`; it fails if a real slicer is unavailable. `KEEP_INTEGRATION_DATA=1` preserves its temporary files for debugging.
 
 The Playwright tests run the real browser upload → preview → slice → download workflow decode the embedded preview PNGs, and check phone access to job history. They also require the real slicer. The isolated native test server defaults to port 18084 (`ORCA_TEST_PORT` changes it) and a temporary data directory. Set `ORCA_TEST_URL` to test an already-running container instead of starting a native server:
 

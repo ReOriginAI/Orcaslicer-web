@@ -1,11 +1,18 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { processSettingKeys, machineSettingKeys, filamentSettingKeys, bedTemperatureKeys } from '@orca-web/shared';
 import type { BuildVolume, MachinePreset, Preset, PresetCatalog, PresetSelection } from '@orca-web/shared';
 export type ProfileKind = 'machine' | 'process' | 'filament';
 export type ProfileData = Record<string, unknown>;
 export interface ProfileRecord { id: string; kind: ProfileKind; name: string; path: string; data: ProfileData; flat?: ProfileData }
 const kinds = new Set(['machine', 'process', 'filament']);
+const displayedSettings = new Set([
+  ...Object.values(processSettingKeys), ...Object.values(machineSettingKeys), ...Object.values(filamentSettingKeys),
+  ...Object.values(machineSettingKeys).map(key => `filament_${key}`),
+  ...bedTemperatureKeys, ...bedTemperatureKeys.map(key => `${key}_initial_layer`),
+  'nozzle_temperature_range_low', 'nozzle_temperature_range_high', 'fan_max_speed',
+]);
 export const profileId = (kind: ProfileKind, name: string) => `${kind}-${createHash('sha256').update(name).digest('hex').slice(0, 20)}`;
 export function buildVolume(data: ProfileData): BuildVolume {
   const area = data.printable_area;
@@ -44,24 +51,57 @@ export class PresetRegistry {
   constructor(records: ProfileRecord[]) {
     this.records = new Map(records.map(r => [r.id, r]));
     const byName = new Map(records.map(r => [`${r.kind}:${r.name}`, r]));
-    const machines: MachinePreset[] = records.filter(r => r.kind === 'machine' && /^Creality Ender-3 V3 KE \d+(?:\.\d+)? nozzle$/.test(r.name) && r.data.instantiation === 'true')
-      .map(r => { const d = flattenProfile(r, byName); return { id: r.id, name: r.name, compatibleMachineIds: [r.id], buildVolume: buildVolume(d), nozzleDiameter: Number((d.nozzle_diameter as string[])[0]) }; });
+    const number = (data: ProfileData, key: string, fallback: number) => {
+      const raw = Array.isArray(data[key]) ? data[key][0] : data[key];
+      const value = Number(raw);
+      return raw !== undefined && Number.isFinite(value) ? value : fallback;
+    };
+    const settingValues = (data: ProfileData): Record<string, string> => Object.fromEntries(
+      Object.entries(data).flatMap(([key, raw]) => {
+        const value = Array.isArray(raw) ? raw[0] : raw;
+        return displayedSettings.has(key) && typeof value === 'string' && /^-?\d+(?:\.\d+)?%?$/.test(value) ? [[key, value]] : [];
+      }),
+    );
+    const machines: MachinePreset[] = records.filter(r => r.kind === 'machine' && /^Creality Ender-3 (?:V3 KE|Pro) \d+(?:\.\d+)? nozzle$/.test(r.name) && r.data.instantiation === 'true')
+      .map(r => {
+        const d = flattenProfile(r, byName);
+        const pro = r.name.startsWith('Creality Ender-3 Pro ');
+        return {
+          id: r.id, name: r.name, compatibleMachineIds: [r.id], buildVolume: buildVolume(d),
+          nozzleDiameter: number(d, 'nozzle_diameter', 0.4), settingValues: settingValues(d),
+          limits: {
+            minLayerHeight: number(d, 'min_layer_height', 0.06), maxLayerHeight: number(d, 'max_layer_height', 0.32),
+            maxNozzleTemperature: pro ? 250 : 300, maxBedTemperature: pro ? 110 : 100,
+            maxAcceleration: Math.min(number(d, 'machine_max_acceleration_x', 500), number(d, 'machine_max_acceleration_y', 500), number(d, 'machine_max_acceleration_extruding', 500)),
+            maxSpeed: Math.min(number(d, 'machine_max_speed_x', 500), number(d, 'machine_max_speed_y', 500)),
+          },
+        };
+      });
     const entries = (kind: ProfileKind): Preset[] => records.filter(r => r.kind === kind && r.data.instantiation === 'true')
-      .flatMap(r => { const flat = flattenProfile(r, byName); const compatibleMachineIds = machines.filter(m => compatibleWith(flat, m.name)).map(m => m.id);
-        return compatibleMachineIds.length ? [{ id: r.id, name: r.name, compatibleMachineIds }] : []; });
+      .flatMap(r => {
+        const flat = flattenProfile(r, byName);
+        const compatibleMachineIds = machines.filter(m => compatibleWith(flat, m.name)).map(m => m.id);
+        return compatibleMachineIds.length ? [{ id: r.id, name: r.name, compatibleMachineIds, settingValues: settingValues(flat) }] : [];
+      });
     const processes = entries('process'); const filaments = entries('filament');
-    const machine = machines.find(m => m.name === 'Creality Ender-3 V3 KE 0.4 nozzle');
-    const data = machine ? this.records.get(machine.id)!.flat! : {};
-    const process = processes.find(p => p.name === data.default_print_profile && p.compatibleMachineIds.includes(machine!.id));
-    const requestedFilament = 'Generic PLA @Creality Ender-3V3-all';
-    const filament = filaments.find(p => p.name === requestedFilament && p.compatibleMachineIds.includes(machine!.id)) ??
-      filaments.find(p => Array.isArray(data.default_filament_profile) && data.default_filament_profile.includes(p.name) && p.compatibleMachineIds.includes(machine!.id));
-    // A selectable printer needs a complete set of explicitly compatible bundled profiles.
-    const availableMachines=machines.filter(m=>processes.some(p=>p.compatibleMachineIds.includes(m.id)) && filaments.some(p=>p.compatibleMachineIds.includes(m.id)));
-    const availableIds=new Set(availableMachines.map(m=>m.id));
-    for(const entry of [...processes,...filaments])entry.compatibleMachineIds=entry.compatibleMachineIds.filter(id=>availableIds.has(id));
-    this.catalog = { machines: availableMachines.sort((a,b) => a.nozzleDiameter-b.nozzleDiameter), processes: processes.filter(p=>p.compatibleMachineIds.length).sort((a,b)=>a.name.localeCompare(b.name)), filaments: filaments.filter(p=>p.compatibleMachineIds.length).sort((a,b)=>a.name.localeCompare(b.name)),
-      defaults: machine && process && filament ? { machineId: machine.id, processId: process.id, filamentId: filament.id } : null };
+    const availableMachines = machines.filter(m => processes.some(p => p.compatibleMachineIds.includes(m.id)) && filaments.some(p => p.compatibleMachineIds.includes(m.id)));
+    const availableIds = new Set(availableMachines.map(m => m.id));
+    for (const entry of [...processes, ...filaments]) entry.compatibleMachineIds = entry.compatibleMachineIds.filter(id => availableIds.has(id));
+    for (const machine of availableMachines) {
+      const data = this.records.get(machine.id)!.flat!;
+      const compatibleProcesses = processes.filter(p => p.compatibleMachineIds.includes(machine.id));
+      const compatibleFilaments = filaments.filter(p => p.compatibleMachineIds.includes(machine.id));
+      const process = compatibleProcesses.find(p => p.name === data.default_print_profile) ?? compatibleProcesses[0]!;
+      const filament = compatibleFilaments.find(p => Array.isArray(data.default_filament_profile) && data.default_filament_profile.includes(p.name)) ?? compatibleFilaments[0]!;
+      machine.defaults = { machineId: machine.id, processId: process.id, filamentId: filament.id };
+    }
+    const defaultMachine = availableMachines.find(m => m.name === 'Creality Ender-3 V3 KE 0.4 nozzle');
+    this.catalog = {
+      machines: availableMachines.sort((a, b) => Number(b.id === defaultMachine?.id) - Number(a.id === defaultMachine?.id) || a.name.localeCompare(b.name)),
+      processes: processes.filter(p => p.compatibleMachineIds.length).sort((a, b) => a.name.localeCompare(b.name)),
+      filaments: filaments.filter(p => p.compatibleMachineIds.length).sort((a, b) => a.name.localeCompare(b.name)),
+      defaults: defaultMachine?.defaults ?? null,
+    };
   }
   resolve(selection: PresetSelection): { machine: ProfileRecord; process: ProfileRecord; filament: ProfileRecord } {
     const machine = this.records.get(selection.machineId); const process = this.records.get(selection.processId); const filament = this.records.get(selection.filamentId);
@@ -74,7 +114,7 @@ export class PresetRegistry {
 }
 export async function discoverProfiles(resourceDir: string): Promise<PresetRegistry> {
   const records: ProfileRecord[] = [];
-  // The complete Creality vendor tree holds KE presets and their inherited base profiles.
+  // The complete Creality vendor tree holds KE and Pro presets and their inherited base profiles.
   const profileRoot = path.join(resourceDir, 'profiles', 'Creality');
   async function visit(directory: string): Promise<void> {
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {

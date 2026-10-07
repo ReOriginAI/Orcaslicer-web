@@ -22,6 +22,13 @@ describe('API boundaries',()=>{
   let response=await application.app.inject({method:'POST',url:'/api/jobs',...multipart({...registry().catalog.defaults,args:['--outputdir','/etc']})});expect(response.statusCode).toBe(400);
   response=await application.app.inject({method:'POST',url:'/api/jobs',...multipart(registry().catalog.defaults,'project.3mf')});expect(response.statusCode).toBe(415);
  });
+ it('rejects machine-specific tuning bounds before queueing',async()=>{
+  for (const overrides of [{acceleration:501},{nozzleTemperature:301},{ambientTemperatureC:5},{firstLayerHeight:0.4}]) {
+    const response=await application.app.inject({method:'POST',url:'/api/jobs',...multipart({...registry().catalog.defaults,overrides})});
+    expect(response.statusCode).toBe(400);
+  }
+  expect(application.store.list()).toEqual([]);
+ });
  it('enforces streamed upload limit',async()=>{
   const response=await application.app.inject({method:'POST',url:'/api/jobs',...multipart(registry().catalog.defaults,'cube.stl','a'.repeat(1024*1024+10))});expect(response.statusCode).toBe(413);
  });

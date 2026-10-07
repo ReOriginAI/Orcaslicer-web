@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { sliceOptionsSchema, terminalStatuses, type AboutResponse, type Job, type JobEvent, type JobEventName } from '@orca-web/shared';
 import type { Config } from '../config.js';
 import type { PresetRegistry } from '../presets/discovery.js';
+import { validateMachineOverrides } from '../orca/profiles.js';
 import type { JobStore } from '../storage/jobs.js';
 import type { SliceQueue } from '../jobs/queue.js';
 import { displayFilename, jobIdSchema, jobPaths, safeFilePath } from '../storage/paths.js';
@@ -50,11 +51,7 @@ export async function registerRoutes(app:FastifyInstance, ctx:RouteContext) {
       if ((await fs.stat(dirs.inputFile)).size === 0) throw new HttpError(400,'The model file is empty');
       let raw:unknown; try {raw=JSON.parse(optionsText);} catch {throw new HttpError(400,'Invalid options JSON');}
       const parsed=sliceOptionsSchema.safeParse(raw); if (!parsed.success) throw new HttpError(400,parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; '));
-      let selected; try {selected=registry.resolve(parsed.data);} catch(error) {throw new HttpError(400,(error as Error).message);}
-      if (parsed.data.overrides.layerHeight !== undefined) {
-        const min=Number((selected.machine.flat!.min_layer_height as string[]|undefined)?.[0] ?? 0.06); const max=Number((selected.machine.flat!.max_layer_height as string[]|undefined)?.[0] ?? 0.4);
-        if (parsed.data.overrides.layerHeight < min || parsed.data.overrides.layerHeight > max) throw new HttpError(400,`Layer height must be between ${min} and ${max} mm for this nozzle`);
-      }
+      let selected; try {selected=validateMachineOverrides(registry, parsed.data).profiles;} catch(error) {throw new HttpError(400,(error as Error).message);}
       const now=new Date().toISOString();
       const job:Job={id,status:'queued',filename,options:parsed.data,presets:{machine:selected.machine.name,process:selected.process.name,filament:selected.filament.name},createdAt:now,updatedAt:now};
       store.create(job); queue.enqueue(job); return reply.code(202).send({id,status:'queued'});

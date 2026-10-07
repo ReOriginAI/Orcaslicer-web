@@ -20,6 +20,8 @@ import {
   type Transform,
 } from "@orca-web/shared";
 import { api, errorMessage } from "../api/client";
+import { AdvancedSettings } from "../components/AdvancedSettings";
+import { AmbientSettings } from "../components/AmbientSettings";
 import { Modal } from "../components/Modal";
 import { JobResult, formatBytes, statusLabels } from "../components/JobResult";
 import { ModelViewer, type ModelBounds } from "../viewer/ModelViewer";
@@ -47,6 +49,7 @@ export function App() {
   const [bounds, setBounds] = useState<ModelBounds | null>(null);
   const [transform, setTransform] = useState<Transform>(defaultTransform);
   const [selectingFace, setSelectingFace] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"basic" | "advanced">("basic");
   const [customSettings, setCustomSettings] = useState(false);
   const [overrides, setOverrides] = useState<Overrides>({});
   const [submitting, setSubmitting] = useState(false);
@@ -145,6 +148,14 @@ export function App() {
     catalog?.filaments.filter((preset) =>
       preset.compatibleMachineIds.includes(selection?.machineId ?? ""),
     ) ?? [];
+  const selectedProcess = processes.find(preset => preset.id === selection?.processId);
+  const selectedFilament = filaments.find(preset => preset.id === selection?.filamentId);
+  const basicOverrides: Overrides = {
+    infillPercent: overrides.infillPercent, infillPattern: overrides.infillPattern,
+    supports: overrides.supports, supportType: overrides.supportType,
+    supportOnBuildPlateOnly: overrides.supportOnBuildPlateOnly, ambientTemperatureC: overrides.ambientTemperatureC,
+  };
+  const effectiveOverrides = customSettings ? overrides : basicOverrides;
   const formats =
     about?.supportedFormats.map((format) =>
       format.replace(/^\./, "").toLowerCase(),
@@ -153,6 +164,8 @@ export function App() {
   const ready =
     !!file &&
     !!selection &&
+    processes.some(preset => preset.id === selection.processId) &&
+    filaments.some(preset => preset.id === selection.filamentId) &&
     !!about?.slicerAvailable &&
     !loading &&
     !submitting &&
@@ -208,19 +221,15 @@ export function App() {
     const compatibleFilament = catalog.filaments.filter((preset) =>
       preset.compatibleMachineIds.includes(machineId),
     );
-    setSelection({
+    const defaults = catalog.machines.find(preset => preset.id === machineId)?.defaults;
+    setSelection(defaults ?? {
       machineId,
-      processId:
-        compatibleProcess.find((preset) => preset.id === selection.processId)
-          ?.id ??
-        compatibleProcess[0]?.id ??
-        "",
-      filamentId:
-        compatibleFilament.find((preset) => preset.id === selection.filamentId)
-          ?.id ??
-        compatibleFilament[0]?.id ??
-        "",
+      processId: compatibleProcess[0]?.id ?? "",
+      filamentId: compatibleFilament[0]?.id ?? "",
     });
+    // Motion and temperature overrides are specific to the previous printer.
+    setOverrides(current => ({ ambientTemperatureC: current.ambientTemperatureC }));
+    setCustomSettings(false);
   };
 
   const slice = async () => {
@@ -232,9 +241,7 @@ export function App() {
       const options = sliceOptionsSchema.safeParse({
         ...selection,
         transform,
-        overrides: customSettings
-          ? overrides
-          : { infillPercent: overrides.infillPercent, infillPattern: overrides.infillPattern, supports: overrides.supports, supportType: overrides.supportType, supportOnBuildPlateOnly: overrides.supportOnBuildPlateOnly },
+        overrides: effectiveOverrides,
       });
       if (!options.success)
         throw new Error(
@@ -459,7 +466,7 @@ export function App() {
         <aside className="settings-panel panel" aria-label="Slicing settings">
           <div className="panel-title">
             <h2>Print setup</h2>
-            <span className="eyebrow">Stock Orca presets</span>
+            <span className="eyebrow">Bundled Orca presets</span>
           </div>
           <div className="preset-fields">
             <label className="field">
@@ -477,7 +484,7 @@ export function App() {
                 )}
                 {catalog?.machines.map((preset) => (
                   <option key={preset.id} value={preset.id}>
-                    {preset.name}
+                    {preset.name}{preset.id === catalog?.defaults?.machineId ? " · Default" : ""}
                   </option>
                 ))}
               </select>
@@ -543,6 +550,19 @@ export function App() {
             <p className="selected-preset">{filaments.find((preset) => preset.id === selection?.filamentId)?.name}</p>
           </div>
 
+          <p className="settings-help">Changing printer loads its process and filament defaults and clears print overrides. Room temperature is kept.</p>
+
+          <div className="settings-tabs" role="tablist" aria-label="Print settings" onKeyDown={event => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? "basic" : event.key === "End" ? "advanced" : settingsTab === "basic" ? "advanced" : "basic";
+            setSettingsTab(next);
+            document.getElementById(`${next}-tab`)?.focus();
+          }}>
+            <button id="basic-tab" role="tab" tabIndex={settingsTab === "basic" ? 0 : -1} aria-selected={settingsTab === "basic"} aria-controls="basic-settings" onClick={() => setSettingsTab("basic")}>Basic</button>
+            <button id="advanced-tab" role="tab" tabIndex={settingsTab === "advanced" ? 0 : -1} aria-selected={settingsTab === "advanced"} aria-controls="advanced-settings" onClick={() => setSettingsTab("advanced")}>Advanced{customSettings && <span aria-label="Tuning enabled"> · On</span>}</button>
+          </div>
+          <div id="basic-settings" role="tabpanel" aria-labelledby="basic-tab" hidden={settingsTab !== "basic"}>
           <section className="fill-support-settings" aria-labelledby="fill-support-title">
             <div className="section-title"><h3 id="fill-support-title">Infill &amp; supports</h3></div>
             <fieldset disabled={submitting || activeJob}>
@@ -742,95 +762,14 @@ export function App() {
             </fieldset>
           </section>
 
-          <section className="override-settings">
-            <label className="check-field override-toggle">
-              <input
-                type="checkbox"
-                checked={customSettings}
-                onChange={(event) => setCustomSettings(event.target.checked)}
-                disabled={submitting || activeJob}
-              />
-              Custom print settings
-            </label>
-            {customSettings && (
-              <fieldset disabled={submitting || activeJob}>
-                <legend className="visually-hidden">Print overrides</legend>
-                <div className="override-grid">
-                  <label className="field">
-                    Layer height
-                    <div className="unit-input">
-                      <input
-                        aria-label="Layer height"
-                        type="number"
-                        min="0.06"
-                        max="0.4"
-                        step="0.01"
-                        placeholder="Use preset"
-                        value={overrides.layerHeight ?? ""}
-                        onChange={(event) =>
-                          setOverrides((current) => ({
-                            ...current,
-                            layerHeight:
-                              event.target.value === ""
-                                ? undefined
-                                : Number(event.target.value),
-                          }))
-                        }
-                      />
-                      <span>mm</span>
-                    </div>
-                  </label>
-                  <label className="field">
-                    Wall count
-                    <input
-                      aria-label="Wall count"
-                      type="number"
-                      min="1"
-                      max="20"
-                      step="1"
-                      placeholder="Use preset"
-                      value={overrides.wallCount ?? ""}
-                      onChange={(event) =>
-                        setOverrides((current) => ({
-                          ...current,
-                          wallCount:
-                            event.target.value === ""
-                              ? undefined
-                              : Number(event.target.value),
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="boolean-overrides">
-                  <label className="field">
-                    Brim
-                    <select
-                      aria-label="Brim"
-                      value={
-                        overrides.brim === undefined
-                          ? "preset"
-                          : String(overrides.brim)
-                      }
-                      onChange={(event) =>
-                        setOverrides((current) => ({
-                          ...current,
-                          brim:
-                            event.target.value === "preset"
-                              ? undefined
-                              : event.target.value === "true",
-                        }))
-                      }
-                    >
-                      <option value="preset">Use preset</option>
-                      <option value="true">Enabled</option>
-                      <option value="false">Disabled</option>
-                    </select>
-                  </label>
-                </div>
-              </fieldset>
-            )}
-          </section>
+          </div>
+          <div id="advanced-settings" role="tabpanel" aria-labelledby="advanced-tab" hidden={settingsTab !== "advanced"}>
+            <AdvancedSettings enabled={customSettings} onEnabled={setCustomSettings} values={overrides} onChange={setOverrides}
+              machine={machine} process={selectedProcess} filament={selectedFilament} disabled={submitting || activeJob} />
+            <button className="text-button reset-tuning" disabled={submitting || activeJob} onClick={() => { setOverrides(basicOverrides); setCustomSettings(false); }}>Reset advanced tuning</button>
+          </div>
+          <AmbientSettings values={effectiveOverrides} onChange={next => setOverrides(current => ({ ...current, ambientTemperatureC: next.ambientTemperatureC }))}
+            machine={machine} filament={selectedFilament} disabled={submitting || activeJob} />
         </aside>
       </main>
 

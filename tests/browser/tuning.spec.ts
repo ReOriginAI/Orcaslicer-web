@@ -1,0 +1,57 @@
+import { test, expect } from '@playwright/test';
+import { resolve } from 'node:path';
+import type { PresetCatalog } from '../../packages/shared/src/index.js';
+
+test('Pro defaults, advanced tuning and seasonal temperature reach real G-code', async ({ page, request }) => {
+  const catalog: PresetCatalog = await (await request.get('/api/presets')).json();
+  const pro = catalog.machines.find(m => m.name === 'Creality Ender-3 Pro 0.4 nozzle')!;
+  expect(pro, 'Installed bundle includes the Pro').toBeTruthy();
+  await page.goto('/');
+  await expect(page.getByRole('combobox', { name: 'Printer', exact: true })).toHaveValue(catalog.defaults!.machineId);
+  await page.getByRole('tab', { name: 'Advanced', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
+  await page.getByRole('spinbutton', { name: 'Retraction length', exact: true }).fill('0.8');
+  await page.getByRole('combobox', { name: 'Season shortcut' }).selectOption('winter');
+  await expect(page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true })).toHaveValue('15');
+  await page.getByRole('combobox', { name: 'Printer', exact: true }).selectOption(pro.id);
+  await expect(page.getByRole('combobox', { name: 'Process', exact: true })).toHaveValue(pro.defaults!.processId);
+  await expect(page.getByRole('combobox', { name: 'Filament', exact: true })).toHaveValue(pro.defaults!.filamentId);
+  await expect(page.getByRole('checkbox', { name: 'Custom print settings' })).not.toBeChecked();
+  await expect(page.getByRole('spinbutton', { name: 'Retraction length', exact: true })).toHaveValue('');
+  await expect(page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true })).toHaveValue('15');
+  await expect(page.getByRole('spinbutton', { name: 'Acceleration', exact: true })).toHaveAttribute('max', '500');
+  await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
+  await page.getByRole('spinbutton', { name: 'Layer height', exact: true }).fill('0.2');
+  await page.getByRole('spinbutton', { name: 'Retraction length', exact: true }).fill('4.5');
+  await page.getByRole('spinbutton', { name: 'First layer nozzle', exact: true }).fill('220');
+  await page.getByRole('spinbutton', { name: 'First layer bed', exact: true }).fill('60');
+  await page.getByRole('spinbutton', { name: 'Flow ratio', exact: true }).fill('0.97');
+  await page.getByRole('spinbutton', { name: 'Acceleration', exact: true }).fill('600');
+  await expect(page.getByRole('spinbutton', { name: 'Acceleration', exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('spinbutton', { name: 'Acceleration', exact: true }).fill('500');
+  await page.getByRole('checkbox', { name: 'Custom print settings' }).uncheck();
+  await expect(page.getByRole('status')).toContainText('nozzle 222°C');
+  await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
+  await expect(page.getByRole('spinbutton', { name: 'Retraction length', exact: true })).toHaveValue('4.5');
+  await expect(page.getByRole('status')).toContainText('hot plate 64°C');
+  await page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true }).fill('40');
+  await expect(page.getByText(/Hot room: improve room ventilation/)).toBeVisible();
+  await page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true }).fill('41');
+  await expect(page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('combobox', { name: 'Season shortcut' }).selectOption('winter');
+  await page.getByTestId('model-upload').setInputFiles(resolve('fixtures/cube-20mm.stl'));
+  await expect(page.getByTestId('model-preview')).toHaveAttribute('data-loaded', 'true');
+  const created = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/jobs'));
+  await page.getByRole('button', { name: 'Slice', exact: true }).click();
+  const jobId = (await (await created).json()).id;
+  const savedJob = await (await request.get(`/api/jobs/${jobId}`)).json();
+  expect(savedJob.options.overrides).toMatchObject({ ambientTemperatureC: 15, retractionLength: 4.5, firstLayerNozzleTemperature: 220 });
+  const link = page.getByRole('link', { name: /Download G-code/i }).first();
+  await expect(link).toBeVisible({ timeout: 150000 });
+  const code = await (await request.get((await link.getAttribute('href'))!)).text();
+  for (const expression of [/Ender-3 Pro 0\.4 nozzle/, /; retraction_length = 4\.5\s/,
+    /; nozzle_temperature_initial_layer = 222\s/, /; hot_plate_temp_initial_layer = 64\s/,
+    /; filament_flow_ratio = 0\.97\s/, /; default_acceleration = 500\s/]) expect(code).toMatch(expression);
+  expect(code).toContain('M109 S222');
+  expect(code).toContain('M190 S64');
+});
