@@ -9,6 +9,9 @@ describe('public slice options', () => {
     { arguments: ['--config', '/etc/passwd'] },
     { overrides: { printer_start_gcode: 'arbitrary' } },
     { overrides: { infillPercent: 101 } },
+    { overrides: { infillPattern: 'invalid' } },
+    { overrides: { supportType: 'tree(manual)' } },
+    { overrides: { supportOnBuildPlateOnly: 'yes' } },
     { overrides: { wallCount: 1.5 } },
     { transform: { scale: 0 } },
     { transform: { rotation: { x: Infinity, y: 0, z: 0 } } },
@@ -16,6 +19,6 @@ describe('public slice options', () => {
     expect(sliceOptionsSchema.safeParse({ ...selection, ...extra }).success).toBe(false);
   });
   it('accepts all allowlisted override types', () => {
-    expect(sliceOptionsSchema.parse({ ...selection, overrides: { layerHeight: 0.16, wallCount: 3, infillPercent: 20, supports: true, brim: false } }).overrides.wallCount).toBe(3);
+    expect(sliceOptionsSchema.parse({ ...selection, overrides: { layerHeight: 0.16, wallCount: 3, infillPercent: 20, supports: true, brim: false, infillPattern: 'gyroid', supportType: 'tree(auto)', supportOnBuildPlateOnly: true } }).overrides.wallCount).toBe(3);
   });
 });

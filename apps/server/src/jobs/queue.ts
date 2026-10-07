@@ -9,7 +9,8 @@ import { materializeProfiles } from '../orca/profiles.js';
 import { sliceModel } from '../orca/runner.js';
 import { validateOutput } from '../orca/result.js';
 import { JobStore } from '../storage/jobs.js';
-import { jobPaths } from '../storage/paths.js';
+import { embedGcodeThumbnails } from '../gcode/thumbnails.js';
+import { jobPaths, safeFilePath } from '../storage/paths.js';
 import { JobEvents } from './events.js';
 export class SliceQueue {
   private pending: string[] = []; private active = new Map<string, AbortController>(); private closed = false;
@@ -55,7 +56,13 @@ export class SliceQueue {
         cwd:paths.root,logFile:path.join(paths.work,'orca.log'),timeoutSeconds:this.config.slicerTimeoutSeconds,signal:controller.signal,onOutput:output=>this.events.emit(id,'orca-output',{output}) });
       if (controller.signal.aborted) throw new Error('Slice canceled');
       this.update(id,'validating','validating');
-      const result = await validateOutput(paths.output,job.presets.machine,id,this.version,(performance.now()-start)/1000);
+      const result = await validateOutput(paths.output,job.presets.machine,id,this.version,(performance.now()-start)/1000,job.filename);
+      for (const file of result.files) {
+        const filename = safeFilePath(paths.output, file.name);
+        await embedGcodeThumbnails(filename, controller.signal);
+        file.size = (await fs.stat(filename)).size;
+      }
+      result.sliceTimeSeconds = (performance.now()-start)/1000;
       if (controller.signal.aborted) throw new Error('Slice canceled');
       this.update(id,'succeeded','completed',{result});
     } catch (error) {

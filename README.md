@@ -26,9 +26,10 @@ To use a different host port, create `.env` from `.env.example` and set `PORT`. 
 - STL upload with a configurable 250 MB limit, streamed to disk.
 - Three.js build plate, orbit/pan/zoom, model bounds, X/Y/Z rotation, 90° axis turns, 180° flips, click-to-place on a face, uniform scale, reset, and automatic orientation/arrangement.
 - Printer, process, and filament discovery from the actual installed Orca profiles. The catalog exposes only machines with a complete compatible preset set; this pin supplies KE 0.4 mm.
-- Optional layer-height, wall-count, infill, support, and brim overrides applied to job-specific copies of bundled profiles.
+- Always-visible infill percentage/pattern and support enable/type/placement options; optional custom layer-height, wall-count, and brim overrides applied to job-specific copies of bundled profiles. Blank values and “Use preset” preserve bundled defaults.
 - SQLite job history, a bounded in-process queue, live Server-Sent Events, cancellation, and deletion.
-- Output validation against the selected printer, measured slicing time, print-duration/filament statistics when present, and G-code downloads.
+- Output validation against the selected printer, measured slicing time, print-duration/filament statistics when present, and G-code downloads named after the uploaded STL (`part.stl` → `part.gcode`; multiple plates receive `_plate_N` suffixes).
+- Embedded 96×96 and 300×300 PNG previews in Creality's native format and the standard thumbnail format, rendered from the final sliced toolpaths.
 - Desktop/tablet editing and phone-accessible job history and downloads.
 
 The default printer is **Creality Ender-3 V3 KE 0.4 nozzle** and the process is **0.20mm Standard @Creality Ender3V3KE**. The installed machine supplies the build volume. The original requested PLA preset was renamed upstream; Orca 2.4.2's machine default is **Creality Generic PLA @Ender-3V3-all**, which this application discovers and uses.
@@ -38,6 +39,12 @@ Only STL uploads are enabled in this version. Arbitrary uploaded 3MF projects ca
 Use **X/Y/Z +90°** to turn onto another side, **Flip X/Y/Z** for a half-turn, or **Place on face** and click/tap a flat face in the viewer. These actions turn on Ensure on bed and turn off Auto orient so the selected placement is preserved. Bed placement uses the actual transformed vertices in both preview and slicing, so irregular shapes are lowered until their lowest point touches the plate.
 
 Orca determines the final arrangement and orientation and rejects models it cannot slice. Automatic orientation is applied during slicing, so the preview shows the requested manual transform. Tilted models may require supports. The app does not upload G-code to a printer or start prints automatically.
+
+## Printer file previews
+
+The pinned headless Orca CLI does not emit image thumbnails, even when the machine preset requests them. Before a job succeeds, Orca Web renders the final extrusion paths (including supports) and embeds both Creality `png` blocks and standard `thumbnail` blocks at the beginning of each G-code file. This runs on the server without a GPU or display server and adds only comments; print commands remain unchanged.
+
+After updating and rebuilding the application, slice the model again, download the new G-code, and upload it again to the printer's LAN interface. Previously completed jobs retain their original files and do not gain previews automatically. Thumbnail decoding is covered by real slicing and browser tests; the actual printer firmware interface must be checked on the device.
 
 ## Development
 
@@ -68,9 +75,9 @@ pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-`pnpm test` runs unit/API tests and does not require Orca. `pnpm test:integration` starts the real server in an isolated temporary directory, slices the bundled cube, checks live events and actual G-code, verifies rotation/scale and all five overrides, and restarts the server to check persistence. It requires `ORCA_BIN` and `ORCA_RESOURCES`; it fails if a real slicer is unavailable. `KEEP_INTEGRATION_DATA=1` preserves its temporary files for debugging.
+`pnpm test` runs unit/API tests and does not require Orca. `pnpm test:integration` starts the real server in an isolated temporary directory, slices the bundled cube, checks live events and actual G-code, verifies rotation/scale and all process overrides, including infill pattern and support type/placement, checks both embedded thumbnail formats and dimensions, and restarts the server to check persistence. It requires `ORCA_BIN` and `ORCA_RESOURCES`; it fails if a real slicer is unavailable. `KEEP_INTEGRATION_DATA=1` preserves its temporary files for debugging.
 
-The Playwright tests run the real browser upload → preview → slice → download workflow and check phone access to job history. They also require the real slicer. The isolated native test server defaults to port 18084 (`ORCA_TEST_PORT` changes it) and a temporary data directory. Set `ORCA_TEST_URL` to test an already-running container instead of starting a native server:
+The Playwright tests run the real browser upload → preview → slice → download workflow decode the embedded preview PNGs, and check phone access to job history. They also require the real slicer. The isolated native test server defaults to port 18084 (`ORCA_TEST_PORT` changes it) and a temporary data directory. Set `ORCA_TEST_URL` to test an already-running container instead of starting a native server:
 
 ```bash
 ORCA_TEST_URL=http://127.0.0.1:8084 pnpm test:browser

@@ -14,6 +14,23 @@ describe('G-code result validation',()=>{
   await fs.writeFile(path.join(dir,'plate_1.gcode'),gcode(machineName));const result=await validateOutput(dir,machineName,randomUUID(),'2.4.2',1.5);
   expect(result.files).toHaveLength(1);expect(result.printerName).toBe(machineName);expect(result.files[0]!.size).toBeGreaterThan(0);
  });
+ it('renames the physical output and encoded download URL to the uploaded model name',async()=>{
+  const id=randomUUID();const original='my part.v2 café.STL';
+  await fs.writeFile(path.join(dir,'plate_1.gcode'),gcode(machineName));
+  const result=await validateOutput(dir,machineName,id,'2.4.2',1,original);
+  expect(result.files[0]!.name).toBe('my part.v2 café.gcode');
+  expect(result.files[0]!.downloadUrl).toBe(`/api/jobs/${id}/files/${encodeURIComponent('my part.v2 café.gcode')}`);
+  expect(await fs.readFile(path.join(dir,result.files[0]!.name),'utf8')).toBe(gcode(machineName));
+  expect(await fs.readdir(dir)).not.toContain('plate_1.gcode');
+ });
+ it('keeps every plate distinct when the upload name overlaps Orca plate names',async()=>{
+  await fs.writeFile(path.join(dir,'plate_1.gcode'),gcode(machineName)+'; first\n');
+  await fs.writeFile(path.join(dir,'plate_2.gcode'),gcode(machineName)+'; second\n');
+  const result=await validateOutput(dir,machineName,randomUUID(),'2.4.2',1,'plate_2.stl');
+  expect(result.files.map(file=>file.name)).toEqual(['plate_2_plate_1.gcode','plate_2_plate_2.gcode']);
+  expect(await fs.readFile(path.join(dir,result.files[0]!.name),'utf8')).toContain('; first');
+  expect(await fs.readFile(path.join(dir,result.files[1]!.name),'utf8')).toContain('; second');
+ });
  it('refuses G-code targeting another machine',async()=>{
   await fs.writeFile(path.join(dir,'plate_1.gcode'),gcode('Unexpected printer'));
   await expect(validateOutput(dir,machineName,randomUUID(),'2.4.2',1)).rejects.toThrow('does not match');

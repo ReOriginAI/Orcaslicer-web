@@ -232,7 +232,9 @@ export function App() {
       const options = sliceOptionsSchema.safeParse({
         ...selection,
         transform,
-        overrides: customSettings ? overrides : {},
+        overrides: customSettings
+          ? overrides
+          : { infillPercent: overrides.infillPercent, infillPattern: overrides.infillPattern, supports: overrides.supports, supportType: overrides.supportType, supportOnBuildPlateOnly: overrides.supportOnBuildPlateOnly },
       });
       if (!options.success)
         throw new Error(
@@ -480,6 +482,7 @@ export function App() {
                 ))}
               </select>
             </label>
+            {machine && <p className="selected-preset">{machine.name}</p>}
             {machine && (
               <p className="preset-note">
                 {machine.nozzleDiameter} mm nozzle · {machine.buildVolume.width}{" "}
@@ -511,6 +514,7 @@ export function App() {
                 ))}
               </select>
             </label>
+            <p className="selected-preset">{processes.find((preset) => preset.id === selection?.processId)?.name}</p>
             <label className="field">
               Filament
               <select
@@ -536,7 +540,96 @@ export function App() {
                 ))}
               </select>
             </label>
+            <p className="selected-preset">{filaments.find((preset) => preset.id === selection?.filamentId)?.name}</p>
           </div>
+
+          <section className="fill-support-settings" aria-labelledby="fill-support-title">
+            <div className="section-title"><h3 id="fill-support-title">Infill &amp; supports</h3></div>
+            <fieldset disabled={submitting || activeJob}>
+              <legend className="visually-hidden">Infill and support options</legend>
+                <label className="field">
+                  Infill
+                  <div className="unit-input">
+                    <input
+                      aria-label="Infill percentage"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      placeholder="Use preset"
+                      value={overrides.infillPercent ?? ""}
+                      onChange={(event) =>
+                        setOverrides((current) => ({
+                          ...current,
+                          infillPercent:
+                            event.target.value === ""
+                              ? undefined
+                              : Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <span>%</span>
+                  </div>
+                </label>
+
+                <label className="field">
+                  Infill pattern
+                  <select aria-label="Infill pattern" value={overrides.infillPattern ?? "preset"}
+                    onChange={(event) => setOverrides((current) => ({ ...current, infillPattern: event.target.value === "preset" ? undefined : event.target.value as Overrides["infillPattern"] }))}>
+                    <option value="preset">Use preset</option>
+                    <option value="grid">Grid</option>
+                    <option value="gyroid">Gyroid</option>
+                    <option value="cubic">Cubic</option>
+                    <option value="rectilinear">Rectilinear</option>
+                    <option value="honeycomb">Honeycomb</option>
+                    <option value="concentric">Concentric</option>
+                  </select>
+                </label>
+                  <label className="field">
+                    Supports
+                    <select
+                      aria-label="Supports"
+                      value={
+                        overrides.supports === undefined
+                          ? "preset"
+                          : String(overrides.supports)
+                      }
+                      onChange={(event) =>
+                        setOverrides((current) => ({
+                          ...current,
+                          supports:
+                            event.target.value === "preset"
+                              ? undefined
+                              : event.target.value === "true",
+                        }))
+                      }
+                    >
+                      <option value="preset">Use preset</option>
+                      <option value="true">Enabled</option>
+                      <option value="false">Disabled</option>
+                    </select>
+                  </label>
+                <label className="field">
+                  Support type
+                  <select aria-label="Support type" value={overrides.supportType ?? "preset"} disabled={overrides.supports === false}
+                    onChange={(event) => setOverrides((current) => ({ ...current, supportType: event.target.value === "preset" ? undefined : event.target.value as Overrides["supportType"] }))}>
+                    <option value="preset">Use preset</option>
+                    <option value="normal(auto)">Normal (auto)</option>
+                    <option value="tree(auto)">Tree (auto)</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Support placement
+                  <select aria-label="Support placement" value={overrides.supportOnBuildPlateOnly === undefined ? "preset" : String(overrides.supportOnBuildPlateOnly)} disabled={overrides.supports === false}
+                    onChange={(event) => setOverrides((current) => ({ ...current, supportOnBuildPlateOnly: event.target.value === "preset" ? undefined : event.target.value === "true" }))}>
+                    <option value="preset">Use preset</option>
+                    <option value="false">Everywhere</option>
+                    <option value="true">Build plate only</option>
+                  </select>
+                </label>
+
+            </fieldset>
+          </section>
 
           <section
             className="transform-settings"
@@ -709,55 +802,7 @@ export function App() {
                     />
                   </label>
                 </div>
-                <label className="field">
-                  Infill
-                  <div className="unit-input">
-                    <input
-                      aria-label="Infill percentage"
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      placeholder="Use preset"
-                      value={overrides.infillPercent ?? ""}
-                      onChange={(event) =>
-                        setOverrides((current) => ({
-                          ...current,
-                          infillPercent:
-                            event.target.value === ""
-                              ? undefined
-                              : Number(event.target.value),
-                        }))
-                      }
-                    />
-                    <span>%</span>
-                  </div>
-                </label>
-                <div className="override-grid boolean-overrides">
-                  <label className="field">
-                    Supports
-                    <select
-                      aria-label="Supports"
-                      value={
-                        overrides.supports === undefined
-                          ? "preset"
-                          : String(overrides.supports)
-                      }
-                      onChange={(event) =>
-                        setOverrides((current) => ({
-                          ...current,
-                          supports:
-                            event.target.value === "preset"
-                              ? undefined
-                              : event.target.value === "true",
-                        }))
-                      }
-                    >
-                      <option value="preset">Use preset</option>
-                      <option value="true">Enabled</option>
-                      <option value="false">Disabled</option>
-                    </select>
-                  </label>
+                <div className="boolean-overrides">
                   <label className="field">
                     Brim
                     <select

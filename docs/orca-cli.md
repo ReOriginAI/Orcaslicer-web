@@ -59,7 +59,7 @@ The 3MF build transform stores twelve numbers: `r00 r10 r20 r01 r11 r21 r02 r12 
 
 ## Output and integration checks
 
-Orca generates `plate_1.gcode` and `result.json`. A real upload through the standalone deployed Node 22 server produced a nonempty 295,152-byte G-code file. Its output contains these verifiable metadata keys:
+Orca generates `plate_1.gcode` and `result.json`. After validation, the server renames G-code to the uploaded STL's base name: `part.stl` becomes `part.gcode`. Multiple plates use `part_plate_1.gcode`, `part_plate_2.gcode`, and so on; stored result names, URLs, and download headers all use those names. A real upload through the standalone Node 22 server produced a nonempty 295,152-byte G-code file before thumbnail embedding (303,360 bytes with previews). Its output contains these verifiable metadata keys:
 
 ```text
 printer_settings_id = Creality Ender-3 V3 KE 0.4 nozzle
@@ -70,6 +70,16 @@ filament_settings_id = "Creality Generic PLA @Ender-3V3-all"
 ```
 
 Print-duration and filament measurements are comments near the end of the file: `estimated printing time (normal mode)`, `filament used [mm]`, and `filament used [g]`. The server checks the generated file and selected printer before exposing a download.
+
+## Embedded printer thumbnails
+
+Real headless v2.4.2 exports contain no thumbnail blocks, despite the KE preset requesting 96×96 and 300×300 images. Orca's thumbnail exporter requires a rendering callback that the headless slicing path does not supply. See the pinned [Orca thumbnail exporter](https://github.com/OrcaSlicer/OrcaSlicer/blob/v2.4.2/src/libslic3r/GCode/Thumbnails.hpp).
+
+After validation and renaming, the server streams the G-code twice to render an isometric preview from actual extrusion paths. Supports are blue; the part is orange. Startup purge paths, travel, retraction, brim, skirt, and wipe towers do not determine the image frame. The parser handles absolute/relative coordinates and extrusion, position resets, and XY arcs. PNG encoding uses Node's built-in zlib; no graphics runtime is added.
+
+Each file begins with native Creality PNG blocks at 96×96 then 300×300, followed by standard blocks at both sizes. The native header is `; png begin WIDTH*HEIGHT BASE64_LENGTH FIRST_ROW LAST_ROW LAYER_COUNT`, with payload lines of at most 78 characters and `; png end`. The standard header is `; thumbnail begin WIDTHxHEIGHT BASE64_LENGTH`, ending with `; thumbnail end`. Native headers follow the [Creality Print exporter](https://github.com/CrealityOfficial/CrealityPrint/blob/master/src/libslic3r/GCode/Thumbnails.hpp). The original G-code remains a byte-for-byte suffix, and an atomic replacement updates the output only after thumbnail generation succeeds. Result sizes include the image comments.
+
+Unit tests verify PNG checksums/pixels, comment lengths, preservation, cancellation, extrusion modes, framing, and arcs. Real integration slices verify both formats for stock and transformed models; browser tests decode every embedded PNG. Firmware display behavior requires a device check. Existing outputs are unchanged; rebuild the app and re-slice/re-upload to obtain preview-bearing files.
 
 Run the mandatory real slicing integration check in the Docker runtime:
 

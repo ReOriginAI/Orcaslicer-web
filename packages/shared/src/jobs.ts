@@ -4,7 +4,10 @@ export const overridesSchema = z.object({
   layerHeight: z.number().min(0.06).max(0.4).optional(),
   wallCount: z.number().int().min(1).max(20).optional(),
   infillPercent: z.number().min(0).max(100).optional(),
+  infillPattern: z.enum(['grid', 'gyroid', 'cubic', 'rectilinear', 'honeycomb', 'concentric']).optional(),
   supports: z.boolean().optional(),
+  supportType: z.enum(['normal(auto)', 'tree(auto)']).optional(),
+  supportOnBuildPlateOnly: z.boolean().optional(),
   brim: z.boolean().optional(),
 }).strict();
 export const transformSchema = z.object({

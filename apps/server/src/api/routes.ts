@@ -72,7 +72,7 @@ export async function registerRoutes(app:FastifyInstance, ctx:RouteContext) {
     let filename:string;try {filename=safeFilePath(jobPaths(config.dataDir,job.id).output,name);} catch {throw new HttpError(400,'Invalid download filename');}
     if (job.status !== 'succeeded' || !job.result?.files.some(f=>f.name === name)) throw new HttpError(404,'G-code file not found');
     const stat=await fs.lstat(filename);if (!stat.isFile()) throw new HttpError(404,'G-code file not found');
-    reply.type('application/octet-stream').header('Content-Length',stat.size).header('Content-Disposition',`attachment; filename="model.gcode"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    reply.type('application/octet-stream').header('Content-Length',stat.size).header('Content-Disposition',`attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name).replace(/[!'()*]/g, char=>`%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`);
     return reply.send(createReadStream(filename));
   });
   app.get('/api/jobs/:id/events',async(request,reply)=>{

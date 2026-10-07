@@ -7,6 +7,9 @@ export function applyOverrides(profile: ProfileData, values: Overrides): Profile
   if (overrides.layerHeight !== undefined) copy.layer_height = String(overrides.layerHeight);
   if (overrides.wallCount !== undefined) copy.wall_loops = String(overrides.wallCount);
   if (overrides.infillPercent !== undefined) copy.sparse_infill_density = `${overrides.infillPercent}%`;
+  if (overrides.infillPattern !== undefined) copy.sparse_infill_pattern = overrides.infillPattern;
+  if (overrides.supportType !== undefined) copy.support_type = overrides.supportType;
+  if (overrides.supportOnBuildPlateOnly !== undefined) copy.support_on_build_plate_only = overrides.supportOnBuildPlateOnly ? '1' : '0';
   if (overrides.supports !== undefined) copy.enable_support = overrides.supports ? '1' : '0';
   if (overrides.brim !== undefined) { copy.brim_type = overrides.brim ? 'outer_only' : 'no_brim'; if (overrides.brim) copy.brim_width = '5'; }
   return copy;
