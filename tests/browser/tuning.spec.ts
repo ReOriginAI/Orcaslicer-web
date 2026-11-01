@@ -8,6 +8,9 @@ test('Pro defaults, advanced tuning and seasonal temperature reach real G-code',
   expect(pro, 'Installed bundle includes the Pro').toBeTruthy();
   await page.goto('/');
   await expect(page.getByRole('combobox', { name: 'Printer', exact: true })).toHaveValue(catalog.defaults!.machineId);
+  expect(catalog.defaults).toEqual(pro.defaults);
+  await expect(page.getByRole('combobox', { name: 'Print mode', exact: true })).toHaveValue('robust');
+  await page.getByRole('combobox', { name: 'Printer', exact: true }).selectOption(catalog.machines.find(m => m.name === 'Creality Ender-3 V3 KE 0.4 nozzle')!.id);
   await page.getByRole('tab', { name: 'Advanced', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Custom print settings' }).check();
   await page.getByRole('spinbutton', { name: 'Retraction length', exact: true }).fill('0.8');
@@ -17,7 +20,12 @@ test('Pro defaults, advanced tuning and seasonal temperature reach real G-code',
   await expect(page.getByRole('combobox', { name: 'Process', exact: true })).toHaveValue(pro.defaults!.processId);
   await expect(page.getByRole('combobox', { name: 'Filament', exact: true })).toHaveValue(pro.defaults!.filamentId);
   await expect(page.getByRole('checkbox', { name: 'Custom print settings' })).not.toBeChecked();
+  await expect(page.getByRole('spinbutton', { name: 'Retraction length', exact: true })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Retraction speed', exact: true })).toHaveValue('25');
+  await page.getByRole('combobox', { name: 'Print mode', exact: true }).selectOption('preset');
   await expect(page.getByRole('spinbutton', { name: 'Retraction length', exact: true })).toHaveValue('');
+  await expect(page.getByRole('spinbutton', { name: 'Retraction speed', exact: true })).toHaveValue('');
+  await page.getByRole('combobox', { name: 'Print mode', exact: true }).selectOption('robust');
   await expect(page.getByRole('spinbutton', { name: 'Ambient temperature', exact: true })).toHaveValue('15');
   await expect(page.getByRole('spinbutton', { name: 'Acceleration', exact: true })).toHaveAttribute('max', '500');
   await page.getByRole('checkbox', { name: 'Custom print settings' }).check();

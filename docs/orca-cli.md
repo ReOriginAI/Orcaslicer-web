@@ -16,17 +16,17 @@ The following installed profiles were verified by actually slicing `fixtures/cub
 
 | Kind | Profile |
 | --- | --- |
-| Machine | `Creality Ender-3 V3 KE 0.4 nozzle` |
-| Process | `0.20mm Standard @Creality Ender3V3KE` |
-| Filament | `Creality Generic PLA @Ender-3V3-all` |
+| Machine | `Creality Ender-3 Pro 0.4 nozzle` |
+| Process | `0.20mm Standard @Creality Ender3 Pro 0.4` |
+| Filament | `Creality Generic PLA` |
 
-The filament requested in the original specification, `Generic PLA @Creality Ender-3V3-all`, was renamed upstream. Orca Web selects the current bundled default identified by the machine's `default_filament_profile` instead of maintaining an obsolete or manually reconstructed filament profile.
+Orca Web selects the bundled filament default identified by the machine's `default_filament_profile`. The default Robust print mode overrides filament retraction to 1 mm at 25 mm/s. Use preset mode preserves bundled retraction settings; advanced custom settings allow manual overrides.
 
 The bundled machine specifies Klipper G-code, a printable polygon from `(0, 0)` to `(220, 220)`, and a printable height of `245` mm. The backend derives the viewer's volume from this profile.
 
 `--load-settings` does not resolve the bundled profiles' `inherits` chains. The backend resolves parent profiles from the installation, copies the resolved machine/process/filament JSON into each job's work directory, and removes `inherits` from those standalone copies. Installed presets remain unchanged. Names, `type`, and `from: system` are preserved so G-code records the selected system profiles.
 
-The catalog also exposes `Creality Ender-3 Pro` nozzle variants (0.2, 0.4, 0.6, and 0.8 mm) when compatible bundled processes and filaments exist. A real browser slice verified the 0.4 mm Pro with `0.20mm Standard @Creality Ender3 Pro 0.4` and `Creality Generic PLA`. Its stock machine profile supplies Marlin start/end G-code, a 220 × 220 × 250 mm volume, and Bowden retraction defaults. The KE 0.4 mm remains the application default.
+The catalog exposes `Creality Ender-3 Pro` nozzle variants (0.2, 0.4, 0.6, and 0.8 mm) when compatible bundled processes and filaments exist. The Pro 0.4 mm is the application default, with the KE 0.4 mm as a fallback if unavailable. Its stock machine profile supplies Marlin start/end G-code and a 220 × 220 × 250 mm volume. Robust mode applies 1 mm retraction at 25 mm/s over the bundled Bowden retraction settings.
 
 Advanced tuning writes scalar strings to the process profile, string arrays to machine/filament profiles, and mirrors explicit retraction overrides into the filament override keys because Orca gives them precedence. The integration test checks all exposed tuning keys in generated G-code. Ambient temperature is an application-level input: it adjusts first-layer nozzle and plate temperatures before profile serialization, with manual values applied first and machine/material limits applied last. The Pro browser test verifies actual `M109 S222` / `M190 S64` heating commands for 15°C ambient and manual first-layer targets of 220°C nozzle / 60°C bed. See the [ambient tuning behavior](../README.md#included-workflow) for the heuristic and its limits.
 

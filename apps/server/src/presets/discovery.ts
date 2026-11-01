@@ -95,7 +95,8 @@ export class PresetRegistry {
       const filament = compatibleFilaments.find(p => Array.isArray(data.default_filament_profile) && data.default_filament_profile.includes(p.name)) ?? compatibleFilaments[0]!;
       machine.defaults = { machineId: machine.id, processId: process.id, filamentId: filament.id };
     }
-    const defaultMachine = availableMachines.find(m => m.name === 'Creality Ender-3 V3 KE 0.4 nozzle');
+    const defaultMachine = availableMachines.find(m => m.name === 'Creality Ender-3 Pro 0.4 nozzle')
+      ?? availableMachines.find(m => m.name === 'Creality Ender-3 V3 KE 0.4 nozzle');
     this.catalog = {
       machines: availableMachines.sort((a, b) => Number(b.id === defaultMachine?.id) - Number(a.id === defaultMachine?.id) || a.name.localeCompare(b.name)),
       processes: processes.filter(p => p.compatibleMachineIds.length).sort((a, b) => a.name.localeCompare(b.name)),
@@ -130,6 +131,6 @@ export async function discoverProfiles(resourceDir: string): Promise<PresetRegis
   }
   await visit(profileRoot);
   const registry = new PresetRegistry(records);
-  if (!registry.catalog.defaults) throw new Error('Required stock Ender-3 V3 KE / 0.4 mm presets were not found in this Orca installation');
+  if (!registry.catalog.defaults) throw new Error('Required stock Ender-3 Pro or V3 KE / 0.4 mm presets were not found in this Orca installation');
   return registry;
 }

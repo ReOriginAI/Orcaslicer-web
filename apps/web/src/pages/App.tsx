@@ -28,6 +28,7 @@ import { ModelViewer, type ModelBounds } from "../viewer/ModelViewer";
 import { turnOnAxis, type Axis } from "../viewer/placement";
 
 const defaultTransform = () => transformSchema.parse({});
+const robustRetraction = { retractionLength: 1, retractionSpeed: 25 };
 const eventNames: JobEventName[] = [
   "snapshot",
   "queued",
@@ -51,7 +52,8 @@ export function App() {
   const [selectingFace, setSelectingFace] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"basic" | "advanced">("basic");
   const [customSettings, setCustomSettings] = useState(false);
-  const [overrides, setOverrides] = useState<Overrides>({});
+  const [printMode, setPrintMode] = useState<"robust" | "preset">("robust");
+  const [overrides, setOverrides] = useState<Overrides>(robustRetraction);
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -151,6 +153,7 @@ export function App() {
   const selectedProcess = processes.find(preset => preset.id === selection?.processId);
   const selectedFilament = filaments.find(preset => preset.id === selection?.filamentId);
   const basicOverrides: Overrides = {
+    ...(printMode === "robust" ? robustRetraction : {}),
     infillPercent: overrides.infillPercent, infillPattern: overrides.infillPattern,
     supports: overrides.supports, supportType: overrides.supportType,
     supportOnBuildPlateOnly: overrides.supportOnBuildPlateOnly, ambientTemperatureC: overrides.ambientTemperatureC,
@@ -228,7 +231,10 @@ export function App() {
       filamentId: compatibleFilament[0]?.id ?? "",
     });
     // Motion and temperature overrides are specific to the previous printer.
-    setOverrides(current => ({ ambientTemperatureC: current.ambientTemperatureC }));
+    setOverrides(current => ({
+      ...(printMode === "robust" ? robustRetraction : {}),
+      ambientTemperatureC: current.ambientTemperatureC,
+    }));
     setCustomSettings(false);
   };
 
@@ -550,7 +556,24 @@ export function App() {
             <p className="selected-preset">{filaments.find((preset) => preset.id === selection?.filamentId)?.name}</p>
           </div>
 
-          <p className="settings-help">Changing printer loads its process and filament defaults and clears print overrides. Room temperature is kept.</p>
+          <p className="settings-help">Changing printer loads its process and filament defaults and resets custom print settings. Print mode and room temperature are kept.</p>
+
+          <label className="field">
+            Print mode
+            <select aria-label="Print mode" value={printMode} disabled={submitting || activeJob}
+              onChange={event => {
+                const mode = event.target.value as "robust" | "preset";
+                setPrintMode(mode);
+                setOverrides(current => ({ ...current,
+                  retractionLength: mode === "robust" ? robustRetraction.retractionLength : undefined,
+                  retractionSpeed: mode === "robust" ? robustRetraction.retractionSpeed : undefined,
+                }));
+              }}>
+              <option value="robust">Robust · Default</option>
+              <option value="preset">Use preset</option>
+            </select>
+          </label>
+          <p className="settings-help">Robust mode sets filament retraction to 1 mm at 25 mm/s. Advanced custom settings can override these values.</p>
 
           <div className="settings-tabs" role="tablist" aria-label="Print settings" onKeyDown={event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

@@ -72,19 +72,20 @@ describe('advanced and ambient tuning', () => {
       expect(() => validateMachineOverrides(r, { ...options, overrides: { nozzleTemperature: 235 } })).toThrow(/190 and 230/);
     } finally { await fs.rm(dir, { recursive: true, force: true }); }
   });
-  it('exposes Pro nozzle variants with their own defaults while retaining the KE default', () => {
+  it('prefers the Pro 0.4 mm and its compatible defaults over the KE', () => {
     const base = registry();
     const name = 'Creality Ender-3 Pro 0.4 nozzle';
     const process = record('process', 'Pro Standard', { compatible_printers: [name] });
     const pla = record('filament', 'Pro PLA', { compatible_printers: [name] });
     const pro = record('machine', name, { inherits: 'base', printable_height: '250', default_print_profile: process.name, default_filament_profile: [pla.name], retraction_length: ['4'], machine_max_acceleration_extruding: ['500'] });
     const r = new PresetRegistry([...base.records.values(), pro, process, pla]);
-    expect(r.catalog.defaults).toEqual(base.catalog.defaults);
     const preset = r.catalog.machines.find(m => m.name === name)!;
+    expect(r.catalog.defaults).toEqual(preset.defaults);
+    expect(r.catalog.machines[0]!.id).toBe(preset.id);
     expect(preset.buildVolume.height).toBe(250);
     expect(preset.settingValues?.retraction_length).toBe('4');
     expect(r.resolve(preset.defaults!).machine.name).toBe(name);
-    expect(() => r.resolve({ ...r.catalog.defaults!, machineId: preset.id })).toThrow(/incompatible/);
+    expect(() => r.resolve({ ...base.catalog.defaults!, machineId: preset.id })).toThrow(/incompatible/);
     expect(() => validateMachineOverrides(r, sliceOptionsSchema.parse({ ...preset.defaults, overrides: { nozzleTemperature: 251 } }))).toThrow(/250/);
   });
 });

@@ -25,7 +25,7 @@ const groups: { name: string; note?: string; fields: Field[] }[] = [
     { key: 'bedTemperature', label: 'Other layers bed', min: 0, max: 110, unit: '°C', orcaKey: 'hot_plate_temp' },
     { key: 'flowRatio', label: 'Flow ratio', min: 0.8, max: 1.2, step: 0.01 },
   ] },
-  { name: 'Retraction & cooling', note: 'Retraction uses the selected printer and filament defaults. Fan speed sets the regular cooling range; bridge cooling keeps its preset.', fields: [
+  { name: 'Retraction & cooling', note: 'Robust mode starts with 1 mm retraction at 25 mm/s. Blank fields use the selected printer and filament defaults. Fan speed sets the regular cooling range; bridge cooling keeps its preset.', fields: [
     { key: 'retractionLength', label: 'Retraction length', min: 0, max: 10, step: 0.1, unit: 'mm' },
     { key: 'retractionSpeed', label: 'Retraction speed', min: 1, max: 80, unit: 'mm/s' },
     { key: 'zHop', label: 'Z hop', min: 0, max: 2, step: 0.1, unit: 'mm' },
